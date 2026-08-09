@@ -1,198 +1,516 @@
-# ThreatTrace - Adaptive Cybersecurity Threat Detection & Analytics
+<div align="center">
 
-Upload **any** CSV/JSON security log → ThreatTrace works out what each column
-*means* (no hardcoded column names), normalizes it, detects threats, scores
-risk 0-100, and explains every finding with the evidence behind it in a SOC
-dashboard.
+# ThreatTrace
 
-📄 **[Project page](https://keerthishree.github.io/ThreatTrace/)** - screenshots,
-the pipeline explained, and a *Will it work on my data?* compatibility guide.
+### Adaptive Cybersecurity Threat Detection & Analytics
 
-### Landing page ↔ app
+**Upload security log. It works out what every column means, finds the threats, and explains itself.**
 
-[`docs/`](docs/) is the single source of truth for the landing page - it's what
-GitHub Pages publishes (enable Pages on the `docs` folder, and update the URL
-above to your username). It's also served *by the app itself*: a `prebuild`/
-`predev` hook ([`frontend/scripts/sync-landing.mjs`](frontend/scripts/sync-landing.mjs))
-copies it into `frontend/public/landing/`, so the two can't drift.
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.6-F7931E?logo=scikitlearn&logoColor=white)](https://scikit-learn.org/)
+[![Tests](https://img.shields.io/badge/tests-48%20passing-0ca30c)](#testing)
+[![LLM calls](https://img.shields.io/badge/LLM%20API%20calls-0-8b7bf0)](#why-no-llm)
 
-That gives one origin with both halves, and links in both directions:
+</div>
 
-| Where | Landing page | Dashboard |
-|---|---|---|
-| `npm run dev` | `localhost:5173/landing/` | `localhost:5173/` |
-| `docker compose up` | `localhost:3000/landing/` | `localhost:3000/` |
-| GitHub Pages | published site | not deployed - page detects this |
+---
 
-The landing page's **Open the dashboard** button resolves its target at runtime:
-same-origin when the app is serving it, otherwise it probes `localhost:3000` and
-`localhost:5173`. If nothing is running it degrades to *Quick start* with a
-"start it with `npm run dev`" hint rather than offering a dead link. The app
-header carries an **About** link back.
+## The problem
 
-The core problem it solves: the same field is named differently in every log
-source. `source_ip`, `src_addr`, and `client_ip` are the same concept;
-`failed_attempts`, `login_fail`, and `authentication_errors` are the same
-concept. ThreatTrace resolves them semantically instead of requiring a mapping
-config per data source.
+Every security tool names the same field differently. A SIEM pipeline normally needs a
+hand-written mapping per data source, and it breaks the moment a vendor renames a column.
 
 ```
-source_ip      | destination_ip | failed_attempts       | timestamp    ← dataset A
-src_addr       | dst_host       | login_fail            | event_time   ← dataset B
-client_ip      | server_ip      | authentication_errors | created_at   ← dataset C
-      ↓                ↓                    ↓                 ↓
-  source_ip     destination_ip      failed_attempts        timestamp   ← canonical schema
+Dataset A   source_ip   destination_ip   failed_attempts        timestamp
+Dataset B   src_addr    dst_host         login_fail             event_time
+Dataset C   client_ip   server_ip        authentication_errors  created_at
+```
+
+Three schemas, zero shared column names, identical meaning. ThreatTrace resolves them
+**semantically** - no config, no per-source mapping file.
+
+```mermaid
+flowchart TD
+    subgraph SRC["Three unrelated log sources"]
+        direction LR
+        A["Dataset A<br/>source_ip · failed_attempts · timestamp"]
+        B["Dataset B<br/>src_addr · login_fail · event_time"]
+        C["Dataset C<br/>client_ip · authentication_errors · created_at"]
+    end
+
+    A --> M{{"Semantic<br/>schema mapper"}}
+    B --> M
+    C --> M
+
+    M --> CANON["Canonical event schema<br/>source_ip · failed_attempts · timestamp · 10 more"]
+    CANON --> D["Detection engines"]
+    CANON -.->|"columns with no match,<br/>preserved verbatim"| X["extra_fields JSON"]
+
+    style M fill:#8b7bf0,stroke:#5b46d9,color:#fff
+    style CANON fill:#199e70,stroke:#0f7a55,color:#fff
+    style X fill:#33333f,stroke:#8a8a99,color:#fff
 ```
 
 ---
 
-## Quick start
+## Architecture
 
-### Docker (full stack: Postgres + API + dashboard)
+```mermaid
+flowchart LR
+    U(["CSV / JSON<br/>upload"])
 
-```bash
-docker compose up --build
+    subgraph ING["Ingestion"]
+        direction TB
+        L["loader<br/>CSV · JSON · NDJSON<br/>nested wrappers"]
+        P["semantic_analyzer<br/>profile each column"]
+        SM["schema_mapper<br/>embed + cosine match"]
+        N["normalizer<br/>canonical frame"]
+        L --> P --> SM --> N
+    end
+
+    subgraph DET["Detection"]
+        direction TB
+        R1["brute_force"]
+        R2["credential_spray"]
+        R3["port_scan"]
+        R4["endpoint_probe"]
+        ML["anomaly_detector<br/>Isolation Forest"]
+    end
+
+    subgraph INT["Intelligence"]
+        direction TB
+        RE["risk_engine<br/>0-100 weighted score"]
+        TE["threat_explainer<br/>evidence templates"]
+        RE --> TE
+    end
+
+    DB[("PostgreSQL<br/>SQLite in dev")]
+    API["FastAPI"]
+    UI["React dashboard"]
+
+    U --> ING --> DET --> INT --> DB
+    ING --> DB
+    DB <--> API <--> UI
+    UI -.->|"correct a mapping"| API
+    API -.->|"re-run pipeline"| ING
+
+    style ING fill:#14141c,stroke:#8b7bf0,color:#fff
+    style DET fill:#14141c,stroke:#d55181,color:#fff
+    style INT fill:#14141c,stroke:#199e70,color:#fff
+    style API fill:#3987e5,stroke:#2a78d6,color:#fff
+    style UI fill:#8b7bf0,stroke:#5b46d9,color:#fff
 ```
-
-- Dashboard → http://localhost:3000
-- API docs → http://localhost:8000/docs
-
-### Local development
-
-```bash
-# Backend
-cd backend
-python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt   # Windows
-# source .venv/bin/activate && pip install -r requirements.txt   # macOS/Linux
-
-python -m synthetic.generate_datasets     # writes data/samples/
-python -m uvicorn main:app --reload       # http://localhost:8000
-
-# Frontend (separate terminal)
-cd frontend
-npm install
-npm run dev                                # http://localhost:5173
-```
-
-Defaults to SQLite locally, so no database setup is needed. Set
-`DATABASE_URL` to point at Postgres (`postgresql+psycopg://...`) when you want
-persistence - that's what docker-compose does.
-
-Then upload any file from `data/samples/` through the dashboard.
 
 ---
 
-## How the semantic schema mapping works
+## How a column gets understood
 
-Column names alone are unreliable, so each column is profiled on **name +
-inferred dtype + observed value shape** before matching:
+Column names alone are unreliable, so each column is judged on **name + inferred type +
+observed values**.
 
-1. **Profile** (`ingestion/semantic_analyzer.py`) - infer the dtype (IP,
-   datetime, integer, categorical, string) from actual values and summarize
-   their shape, producing a natural-language descriptor:
-   `"Column named 'usr_fail_cnt' (read as 'usr fail cnt'). Inferred type: integer. numeric values ranging from 0 to 47, mean 2.10."`
-2. **Embed & match** (`ingestion/schema_mapper.py`) - embed that descriptor
-   and every ontology concept description, then score by cosine similarity,
-   plus a small bonus for name-hint overlap and dtype compatibility, and a
-   **penalty for dtype mismatch** (this is what stops a string
-   `cost_centre_code` from being mistaken for the integer `status_code`
-   concept just because both contain "code").
-3. **Calibrate** - a per-column softmax turns raw scores into a 0-1
-   confidence that's meaningful regardless of the embedding backend's
-   absolute score scale.
-4. **Assign** - greedy highest-confidence-first bipartite matching, so two
-   columns can't both claim the same concept.
-5. **Preserve** (`ingestion/normalizer.py`) - anything below the confidence
-   threshold is **never discarded**; it's kept verbatim per-row in an
-   `extra_fields` JSON blob and still visible during investigation.
+```mermaid
+flowchart TD
+    START(["Raw column"]) --> PROF["<b>1. Profile</b><br/>infer dtype from real values<br/>summarise the value shape"]
+    PROF --> DESC["Descriptor sentence<br/><i>Column named 'usr_fail_cnt'.<br/>Inferred type: integer.<br/>Values 0 to 47, mean 2.10.</i>"]
+    DESC --> EMB["<b>2. Embed + match</b><br/>cosine similarity against<br/>13 ontology concepts"]
+
+    EMB --> BONUS["name-hint bonus +0.08<br/>dtype match bonus +0.05<br/><b>dtype mismatch -0.10</b>"]
+    BONUS --> SOFT["<b>3. Calibrate</b><br/>per-column softmax<br/>to a 0-1 confidence"]
+    SOFT --> ASSIGN["<b>4. Assign</b><br/>greedy highest-first<br/>one column per concept"]
+
+    ASSIGN --> Q{"confidence<br/>above 0.35?"}
+    Q -->|yes| MAP["Mapped to canonical field"]
+    Q -->|no| KEEP["<b>5. Preserved</b><br/>kept verbatim in extra_fields<br/>never discarded"]
+
+    MAP --> Q2{"confidence<br/>above 0.60?"}
+    Q2 -->|yes| TRUST["Trustworthy"]
+    Q2 -->|no| REVIEW["Flagged <i>Check this</i><br/>in the Schema view"]
+    REVIEW -.->|"analyst corrects it"| FORCE["Pinned at 100%<br/>full re-analysis"]
+
+    style PROF fill:#14141c,stroke:#3987e5,color:#fff
+    style EMB fill:#14141c,stroke:#3987e5,color:#fff
+    style SOFT fill:#14141c,stroke:#3987e5,color:#fff
+    style ASSIGN fill:#14141c,stroke:#3987e5,color:#fff
+    style TRUST fill:#0ca30c,stroke:#0a850a,color:#fff
+    style REVIEW fill:#fab219,stroke:#d99a12,color:#000
+    style FORCE fill:#8b7bf0,stroke:#5b46d9,color:#fff
+    style KEEP fill:#33333f,stroke:#8a8a99,color:#fff
+```
+
+The **dtype-mismatch penalty** is what stops a string `cost_centre_code` from being read as
+the integer `status_code` concept just because both contain the word "code".
 
 ### Two interchangeable embedding backends
 
-| Backend | When it's used | Notes |
+| Backend | When | Trade-off |
 |---|---|---|
-| `sentence-transformers` (`all-MiniLM-L6-v2`) | when installed (`requirements-ml.txt`) | true paraphrase understanding |
-| TF-IDF + cosine (scikit-learn) | automatic fallback | no torch dependency; **both are tested to map all sample columns correctly** |
+| `sentence-transformers` (all-MiniLM-L6-v2) | installed via `requirements-ml.txt` | true paraphrase understanding, ~2 GB of torch |
+| TF-IDF + cosine (scikit-learn only) | automatic fallback | no heavy dependency, weaker on synonyms |
 
-Check which one is live: `GET /api/health` → `{"semantic_backend": "..."}`.
-The Docker image ships the fallback to keep the image small; `pip install -r
-backend/requirements-ml.txt` upgrades it. Nothing downstream changes either way.
+Both are tested to map every sample column correctly, so the fallback is a real option and
+not a degraded mode. Check which is live with `GET /api/health`.
 
 ---
 
 ## Detection engines
 
-Four explainable rule-based detectors plus unsupervised ML, all grouped per
-source IP over **densest sliding windows** (a two-pointer scan finds the
-busiest window of a given size, so a burst is never split across two fixed
-buckets).
+Four explainable rules plus unsupervised ML, all grouped per source IP over **densest
+sliding windows** - a two-pointer scan finds the busiest window of a given size, so a burst
+is never split across two fixed buckets.
 
-| Detector | Signal |
-|---|---|
-| **Brute force** | many failed auths against the *same* (IP, user) in a short window |
-| **Credential spraying** | one IP, *many distinct users*, few attempts each - which is what separates it from brute force |
-| **Port scanning** | one IP touching many distinct destination ports; near-sequential runs flagged as a stronger signal |
-| **Endpoint probing** | many distinct paths + high 4xx/5xx ratio, or hits on known-sensitive paths (`/admin`, `/.env`, `/.git/config`, traversal) |
-| **Behavioural anomaly** | Isolation Forest over per-IP features: request rate, failure ratio, distinct ports/destinations/paths/users, mean payload size, off-hours ratio |
+```mermaid
+flowchart TD
+    CANON["Canonical events"] --> GRP["Group by source_ip<br/>densest sliding window"]
 
-The Isolation Forest serves two purposes: it supplies the behaviour-anomaly
-term of *every* IP's risk score, and it independently flags IPs that are
-statistically abnormal but matched **no** rule - the "unknown threat" case.
+    GRP --> BF["<b>Brute force</b><br/>8+ failures, same user<br/>10 min window"]
+    GRP --> CS["<b>Credential spraying</b><br/>8+ distinct users<br/>low attempts per user"]
+    GRP --> PS["<b>Port scanning</b><br/>15+ distinct ports<br/>5 min window"]
+    GRP --> EP["<b>Endpoint probing</b><br/>10+ paths, 50%+ errors<br/>or 5 sensitive-path hits"]
+    GRP --> IF["<b>Isolation Forest</b><br/>8 per-IP features<br/>needs 8+ IPs to train"]
 
-Detectors degrade honestly. If a dataset has no `username` column, credential
-spraying genuinely isn't observable in it, so that detector stands down rather
-than guessing.
+    BF --> AGG["Per-IP findings"]
+    CS --> AGG
+    PS --> AGG
+    EP --> AGG
+    IF --> AGG
+    IF -->|"anomaly above 0.70<br/>and no rule matched"| UNK["Unclassified anomaly<br/><i>the unknown-threat case</i>"]
+    UNK --> AGG
+
+    AGG --> RISK["Risk engine"]
+
+    style BF fill:#3987e5,stroke:#2a78d6,color:#fff
+    style CS fill:#d95926,stroke:#b8461d,color:#fff
+    style PS fill:#199e70,stroke:#0f7a55,color:#fff
+    style EP fill:#c98500,stroke:#a66d00,color:#fff
+    style IF fill:#d55181,stroke:#b53d68,color:#fff
+    style UNK fill:#14141c,stroke:#d55181,color:#fff
+```
+
+### The Isolation Forest does two jobs
+
+1. It supplies the **behaviour-anomaly term of every risk score** (30% of the total).
+2. It independently flags IPs that are statistically abnormal but matched **no rule at all**
+   - the unknown-threat case a pure rule engine cannot reach.
+
+Features: request rate, failure ratio, distinct ports / destinations / paths / usernames,
+mean payload size, off-hours ratio.
+
+### Detectors degrade honestly
+
+```mermaid
+flowchart LR
+    D{"Does the log have<br/>the fields this<br/>detector needs?"}
+    D -->|yes| RUN["Run and report"]
+    D -->|no| STAND["Stand down<br/><i>not observable here</i>"]
+    STAND --> HONEST["Reported as<br/>0 detections,<br/>never guessed"]
+
+    style RUN fill:#0ca30c,stroke:#0a850a,color:#fff
+    style STAND fill:#33333f,stroke:#8a8a99,color:#fff
+    style HONEST fill:#14141c,stroke:#0ca30c,color:#fff
+```
+
+A log with no `username` column genuinely cannot reveal credential spraying, so that
+detector stands down instead of inventing a finding. A 4-column dataset fires two of the
+five, and says so.
 
 ---
 
 ## Risk scoring
 
-Deterministic, auditable, and reproducible - an analyst can always explain why
-a score is what it is:
+Deterministic, weighted, reproducible - an analyst can always explain why a score is what
+it is.
 
 ```
-risk = 100 × (0.40 × threat_severity      # strongest rule hit
-            + 0.30 × behaviour_anomaly     # Isolation Forest score
-            + 0.15 × frequency             # log-scaled event volume
-            + 0.15 × confidence)           # evidence volume × schema-mapping confidence
+risk = 100 × ( 0.40 × threat_severity      ← strongest rule hit
+             + 0.30 × behaviour_anomaly    ← Isolation Forest score
+             + 0.15 × frequency            ← log-scaled event volume
+             + 0.15 × confidence )         ← evidence volume × mapping confidence
 ```
 
-| Band | 0-39 | 40-59 | 60-79 | 80-100 |
-|---|---|---|---|---|
-| Class | Low | Medium | High | Critical |
+```mermaid
+pie showData
+    title Risk score composition
+    "Threat severity" : 40
+    "Behaviour anomaly" : 30
+    "Frequency" : 15
+    "Mapping confidence" : 15
+```
 
-## Explanations
+| Band | Score | Meaning |
+|---|---|---|
+| 🟢 **Low** | 0-39 | Background noise |
+| 🟡 **Medium** | 40-59 | Worth a look |
+| 🟠 **High** | 60-79 | Investigate |
+| 🔴 **Critical** | 80-100 | Act now |
 
-Generated from templates filled with the real evidence - **no LLM call**, so
-output is reproducible, free, offline, and auditable (important when a finding
-has to hold up in an incident review):
-
-> **Threat** - Possible credential spraying attack
-> **Evidence**
-> - IP 36.82.21.229: Contacted 45 distinct user accounts with 67 failed attempts (1.49 attempts/user on average) within 10 minutes
-> - Activity differs from the dataset's normal baseline, notably in: distinct usernames, off hours ratio, distinct destinations
->
-> **Confidence** 87.5% · **Risk** 95.6 (Critical)
-> **Recommended** Block the source IP temporarily · Review all targeted accounts for signs of compromise · Enforce MFA on affected accounts
+Note that **mapping confidence feeds the score**. A finding built on a shaky column
+interpretation scores lower than the same finding built on a confident one.
 
 ---
 
-## Dashboard
+## Explanations
 
-| View | Contents |
+Every finding is explained from a template filled with measured evidence.
+
+> **🔴 Critical 95.6 - Possible credential spraying attack**
+> `36.82.21.229` · China · 67 events
+>
+> **Evidence**
+> - Contacted **45 distinct user accounts** with 67 failed attempts (1.49 attempts/user on average) within 10 minutes
+> - Activity differs from the dataset's normal baseline, notably in: distinct usernames, off-hours ratio, distinct destinations
+>
+> **Recommended actions**
+> 1. Block the source IP temporarily
+> 2. Review all targeted accounts for signs of compromise
+> 3. Enforce multi-factor authentication on affected accounts
+
+### Why no LLM
+
+No language-model call anywhere in the pipeline. That is a deliberate engineering choice,
+not a missing feature:
+
+| Property | Why it matters |
 |---|---|
-| **Upload** | drag-and-drop, plus the semantic interpretation of every column with confidence |
-| **Overview** | KPI tiles, risk distribution, detections by type, highest-risk IPs |
-| **Timeline** | event volume + detections-by-type over time, at selectable bucket sizes |
-| **Investigation** | per-IP: threat, evidence, recommendations, weighted risk breakdown, attack progression, and the raw log lines behind it |
-| **Analytics** | top malicious IPs, attack categories, geographic distribution, behavioural anomalies |
+| **Reproducible** | the same log always yields the same verdict |
+| **Auditable** | every number traces to a row in the data |
+| **Offline** | runs air-gapped, which many SOCs require |
+| **Free** | no per-token cost on a 100k-row log |
 
-Charts follow a validated design system: colorblind-safe categorical palette
-(verified with a ΔE/CVD validator), one hue per detection type assigned in
-fixed order, sequential single-hue ramps for magnitude, and the reserved
-status palette for severity - always paired with an icon and text label so
-color never carries meaning alone. Light and dark are independently stepped
-against their own surfaces, not auto-inverted.
+A finding that has to hold up in an incident review cannot come from a black box.
+
+---
+
+## The honest limitation, and the fix
+
+Semantic matching has a real failure mode: **a wrong mapping produces a wrong finding
+rather than no finding.** Confident matches (above ~0.7) are reliable; low-confidence ones
+are frequently wrong, and similarity has no way to know that `LogonType` is not a failure
+count.
+
+So the fix is to make it **visible and correctable** rather than pretend it doesn't happen.
+
+```mermaid
+sequenceDiagram
+    actor Analyst
+    participant UI as Schema View
+    participant API as FastAPI
+    participant Pipeline
+    participant DB as Database
+
+    Analyst->>UI: Open Schema
+    UI->>API: GET dataset schema
+    API-->>UI: Columns, types, samples, confidence
+    UI-->>Analyst: Flag low confidence mappings
+
+    Note over Analyst,UI: request_count mapped incorrectly\nstatus contains the real signal
+
+    Analyst->>UI: Correct field mappings
+    UI->>API: Update schema mapping
+    API->>DB: Remove old analysis
+    API->>Pipeline: Re-run analysis
+    Pipeline->>DB: Store rebuilt results
+    API-->>UI: Updated mapping
+    UI-->>Analyst: Re-analysis complete
+
+    Note over Analyst,DB: Evidence changes from false positives\nto actual failed attempts
+```
+
+Two clicks, and every detection, score, and explanation is rebuilt from the corrected
+mapping - never a mix of two.
+
+### Dataset lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Uploaded: CSV / JSON received
+    Uploaded --> Analyzed: infer, detect, score, explain
+    Analyzed --> UnderReview: analyst opens Schema view
+    UnderReview --> Analyzed: mapping accepted
+    UnderReview --> Corrected: mapping reassigned
+    Corrected --> Analyzed: full re-run on retained file
+    Analyzed --> [*]
+
+    note right of Corrected
+        Old events, detections and alerts
+        are deleted before the re-run, so
+        results never mix two mappings
+    end note
+```
+
+---
+
+## Will it work on my data?
+
+Column **names** genuinely don't matter. Column **structure** does. Four hard
+requirements - all four, or the analysis honestly returns nothing.
+
+```mermaid
+flowchart TD
+    F(["Your log file"]) --> R1{"Already parsed<br/>into columns?"}
+    R1 -->|"no - raw syslog text"| N1["0 columns mapped<br/><i>no free-text parser</i>"]
+    R1 -->|yes| R2{"One row<br/>per event?"}
+    R2 -->|"no - pre-aggregated"| N2["0 detections<br/><i>windows count rows</i>"]
+    R2 -->|yes| R3{"Has a<br/>source IP column?"}
+    R3 -->|no| N3["0 detections<br/><i>findings attach to an IP</i>"]
+    R3 -->|yes| R4{"Has a<br/>timestamp column?"}
+    R4 -->|no| N4["0 detections<br/><i>every rule is windowed</i>"]
+    R4 -->|yes| YES["It works<br/>whatever the columns are called"]
+
+    style YES fill:#0ca30c,stroke:#0a850a,color:#fff
+    style N1 fill:#d03b3b,stroke:#b02f2f,color:#fff
+    style N2 fill:#d03b3b,stroke:#b02f2f,color:#fff
+    style N3 fill:#d03b3b,stroke:#b02f2f,color:#fff
+    style N4 fill:#d03b3b,stroke:#b02f2f,color:#fff
+```
+
+Each of those failure paths is **verified in the test suite**, not assumed.
+
+### Log sources by fit
+
+| ✅ Works well | 🟡 Partially | ❌ Won't work |
+|---|---|---|
+| SSH / auth logs | IDS / IPS alerts | Raw unstructured syslog |
+| Windows Security (4624/4625) | Proxy logs | EDR / process telemetry |
+| nginx, Apache, ALB, CloudFront | LB logs without paths | File-integrity monitoring |
+| WAF logs | | DNS without client IP |
+| Firewall, netflow, Zeek `conn.log` | | Packet captures (pcap) |
+| VPN, RADIUS | | Application error logs |
+| Okta, Azure AD, CloudTrail sign-ins | | Anything pre-aggregated |
+
+### Field requirements per detector
+
+| Detector | Source IP | Timestamp | Also needs |
+|---|---|---|---|
+| Brute force | required | required | username · failure signal |
+| Credential spraying | required | required | username · failure signal |
+| Port scanning | required | required | port |
+| Endpoint probing | required | required | request path (status code helps) |
+| Behavioural anomaly | required | required | nothing - uses whatever exists |
+
+---
+
+## Quick start
+
+### Local development
+
+```bash
+# ── backend ──────────────────────────────────────────
+cd backend
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements.txt      # Windows
+# source .venv/bin/activate && pip install -r requirements.txt  # macOS / Linux
+
+python -m synthetic.generate_datasets      # writes data/samples/
+python -m uvicorn main:app --reload        # :8000
+
+# ── frontend (second terminal) ───────────────────────
+cd frontend
+npm install
+npm run dev                                # :5173
+```
+
+Defaults to SQLite, so there is no database to set up. Point `DATABASE_URL` at Postgres
+(`postgresql+psycopg://...`) when you want persistence - that is what docker-compose does.
+
+Optional, for the stronger embedding backend:
+
+```bash
+pip install -r backend/requirements-ml.txt
+```
+
+---
+
+## Using it
+
+```mermaid
+flowchart LR
+    U["<b>1 Upload</b><br/>drag a log in"] --> S["<b>2 Schema</b><br/>check the mapping,<br/>correct anything<br/>marked <i>Check this</i>"]
+    S --> O["<b>3 Overview</b><br/>peak risk, KPIs,<br/>severity spread"]
+    O --> T["<b>4 Timeline</b><br/>volume and detections<br/>over time"]
+    T --> I["<b>5 Investigation</b><br/>pick an IP card,<br/>read the evidence"]
+    I --> A["<b>6 Analytics</b><br/>top offenders,<br/>categories, geography"]
+
+    style U fill:#8b7bf0,stroke:#5b46d9,color:#fff
+    style S fill:#3987e5,stroke:#2a78d6,color:#fff
+    style O fill:#199e70,stroke:#0f7a55,color:#fff
+    style T fill:#c98500,stroke:#a66d00,color:#fff
+    style I fill:#d55181,stroke:#b53d68,color:#fff
+    style A fill:#d95926,stroke:#b8461d,color:#fff
+```
+
+Start with `data/samples/web_logs_b.json` - 11 deliberately renamed columns, and all five
+detectors fire on it.
+
+---
+
+## Data model
+
+```mermaid
+erDiagram
+    DATASET ||--o{ EVENT : normalises_to
+    DATASET ||--o{ DETECTION : produces
+    DATASET ||--o{ ALERT : produces
+
+    DATASET {
+        int id PK
+        string filename
+        datetime uploaded_at
+        int row_count
+        json mapping_summary "per-column match + confidence"
+        json unmapped_columns
+        string source_path "retained upload, enables re-run"
+        json overrides "analyst corrections"
+    }
+    EVENT {
+        int id PK
+        string source_ip
+        datetime timestamp
+        string username
+        float failed_attempts
+        float port
+        string request_path
+        text extra_fields "unmapped columns, verbatim"
+    }
+    DETECTION {
+        int id PK
+        string detection_type
+        string source_ip
+        datetime window_start
+        float severity
+        json evidence
+    }
+    ALERT {
+        int id PK
+        string source_ip
+        float risk_score
+        string classification
+        json components "the four weighted terms"
+        json evidence
+        json recommendation
+    }
+```
+
+---
+
+## API
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/health` | status + which embedding backend is live |
+| `GET` | `/api/ontology` | the 13 canonical fields |
+| `POST` | `/api/datasets` | upload and analyse a log |
+| `GET` | `/api/datasets` | list analysed datasets |
+| `GET` | `/api/datasets/{id}/schema` | per-column mapping, dtype, samples, confidence |
+| `PUT` | `/api/datasets/{id}/schema` | **correct the mapping and re-run** |
+| `GET` | `/api/datasets/{id}/overview` | KPIs and distributions |
+| `GET` | `/api/datasets/{id}/timeline` | bucketed volume and detections |
+| `GET` | `/api/datasets/{id}/alerts` | scored alerts, highest risk first |
+| `GET` | `/api/datasets/{id}/ips/{ip}` | full investigation for one IP |
+| `GET` | `/api/datasets/{id}/analytics` | offenders, categories, geography |
+
+Interactive docs at `/docs`.
 
 ---
 
@@ -203,22 +521,30 @@ cd backend
 .venv/Scripts/python -m pytest tests/ -v      # 48 tests
 ```
 
-Coverage:
-- **Schema mapping** - the three differently-named schemas above must map
-  identically, on *both* embedding backends; unknown columns preserved;
-  missing fields degrade gracefully; malformed rows (bad IPs, unparseable
-  timestamps, non-numeric counts) don't raise.
-- **Detection ground truth** - the synthetic generator labels every injected
-  attack, and tests assert each attacker IP is caught with the *right*
-  detection type.
-- **API** - every dashboard endpoint, on all three sample datasets, plus
-  alert ordering, 404s, and rejection of unsupported file types.
-- **Foreign formats** - Zeek, Windows Security, Elasticsearch/ECS, NDJSON,
-  non-security data, and tiny/empty files, none of which the ingestion layer
-  was written against. See *How well does it generalize?* below.
+```mermaid
+flowchart LR
+    subgraph T["48 tests"]
+        direction TB
+        A["<b>Schema mapping</b><br/>same concept across 3 schemas,<br/>on both embedding backends"]
+        B["<b>Overrides</b><br/>pinning, concept re-matching,<br/>duplicate rejection, re-run"]
+        C["<b>Detection ground truth</b><br/>labelled synthetic attacks,<br/>right IP and right type"]
+        D["<b>Foreign formats</b><br/>Zeek, Windows, ECS, NDJSON,<br/>non-security, tiny, empty"]
+        E["<b>API</b><br/>every endpoint, ordering,<br/>404s, bad file types"]
+    end
 
-The dashboard was also verified end-to-end in headless Chromium (upload →
-every page rendered → zero console errors).
+    style A fill:#14141c,stroke:#3987e5,color:#fff
+    style B fill:#14141c,stroke:#8b7bf0,color:#fff
+    style C fill:#14141c,stroke:#199e70,color:#fff
+    style D fill:#14141c,stroke:#c98500,color:#fff
+    style E fill:#14141c,stroke:#d55181,color:#fff
+```
+
+The **foreign-format** suite matters most: the sample data was written alongside the
+ingestion layer, so passing on it proves less than it looks. Those tests use shapes the
+system was never designed around - and four of them crashed the app before they existed.
+
+The dashboard is also verified end-to-end in headless Chromium: upload, every page, zero
+console errors.
 
 ---
 
@@ -230,87 +556,28 @@ backend/
   detection/      brute_force · credential_spray · port_scan · endpoint_probe
                   anomaly_detector · windowing
   intelligence/   risk_engine · threat_explainer
-  geoip/          bundled offline IP→country table
-  synthetic/      dataset generator + labeled attack scenarios
+  geoip/          bundled offline IP-to-country table
+  synthetic/      dataset generator + labelled attack scenarios
   db/             SQLAlchemy models · session
   api/            routes/ · pipeline · schemas
-  tests/
+  tests/          48 tests
 frontend/src/     pages/ · components/ · theme.js · api.js
-docker/           Dockerfile.backend · Dockerfile.frontend · nginx.conf
+docs/             landing page (GitHub Pages source)
+docker/           Dockerfiles · nginx config
 data/samples/     generated sample datasets + ground truth
 ```
 
-**Stack** - Python 3.12, FastAPI, pandas, scikit-learn, SQLAlchemy, Pydantic v2,
-PostgreSQL · React 18, Vite, Tailwind CSS, Recharts · Docker Compose
+**Stack** - Python 3.12 · FastAPI · pandas · scikit-learn · SQLAlchemy 2 · Pydantic v2 ·
+PostgreSQL · sentence-transformers · React 18 · Vite · Tailwind CSS · Recharts · Docker
+Compose · pytest
+
 
 ---
 
-## How well does it generalize?
 
-Tested against log shapes the system was **not** designed around
-(`tests/test_foreign_formats.py`): Zeek `conn.log`, a Windows Security event
-export, an Elasticsearch/ECS nested response, newline-delimited JSON, a
-non-security spreadsheet, and 3-row/empty files.
 
-**What holds up.** Ingestion is genuinely format-agnostic. Timestamps parse
-across ISO 8601, epoch floats, and US `MM/DD/YYYY hh:mm:ss AM` alike. IPs,
-ports, usernames, protocols, and paths are found under unfamiliar names
-(`id.orig_h`, `IpAddress`, `AccountName`, `client.address`). Records are
-located inside arbitrary JSON wrappers, so Elasticsearch's `hits.hits` and
-CloudTrail's `Records` both work without configuration. Real findings come
-out the other end - the Windows export's injected 4625 burst surfaces as
-brute force, and the ECS log's `/.env` probing as endpoint probing.
+<div align="center">
 
-**Where it's weak - and this is the honest limit of the approach.** Confident
-mappings (>0.7) are reliable; **low-confidence ones are frequently wrong**, and
-a wrong mapping produces a wrong finding rather than no finding. Real examples
-from the tests above: Zeek's `id.resp_p` landed on `status_code` instead of
-`port`, so the port scan in that file went undetected; Windows' `LogonType`
-landed on `failed_attempts`, and its client-side `IpPort` on `port`, which
-manufactured a spurious port-scan alert. Semantic similarity has no way to
-know that "LogonType" is not a failure count.
+**Built to be honest about what it knows.**
 
-**The mitigation: analyst override.** The **Schema** page lists every column
-with its inferred type, sample values, and match confidence, flags anything
-below 0.6 as *Check this*, and lets you reassign it from a dropdown (or force it
-to stay unmapped). *Apply & re-run* replays the whole pipeline against the
-retained source file, so detections, risk scores, and explanations are all
-rebuilt from the corrected mapping - never a mix of two.
-
-That turns the failure mode from silent-and-wrong into visible-and-fixable in
-two clicks. It's the reason the confidence column exists at all. Concretely, on
-a log with a constant `request_count` column and a `status` column holding
-`FAILED`/`SUCCESS`:
-
-```
-inferred:   request_count -> failed_attempts  0.40   → "45 failed attempts" (every row counted)
-corrected:  status        -> failed_attempts  manual → "40 failed attempts" (actual failures)
-            request_count -> unmapped         manual   (preserved in extra_fields)
-```
-
-Two residual caveats:
-
-1. **Findings on an unreviewed format are leads, not verdicts.** Once you've
-   checked the mapping for a given format, they're trustworthy.
-2. **Overrides need the retained upload.** Files ingested before this feature
-   existed have no retained copy and return HTTP 409 with a re-upload prompt.
-
-Robustness, separately, is solid: no format tested crashes, a non-security
-spreadsheet correctly yields zero findings instead of invented ones, and
-unmappable columns are always preserved rather than dropped.
-
-## Notes & limitations
-
-- **Sample data is synthetic.** `python -m synthetic.generate_datasets`
-  produces normal baseline traffic plus labeled brute-force, spraying,
-  scanning, probing, and low-and-slow anomaly scenarios. Each dataset only
-  receives scenarios its own column set can actually reveal.
-- **GeoIP is illustrative.** `backend/geoip/country_ranges.csv` is a small
-  bundled table for offline demo purposes - no MaxMind/IP2Location signup
-  required, and not production-accurate. Swap in a real GeoIP database for
-  real use.
-- **Detector thresholds are tuned for the synthetic data**
-  (e.g. 8 failed auths / 10 min for brute force). Real deployments should
-  calibrate these against their own baseline.
-- Uploads are analyzed synchronously; very large files would want a
-  background job queue.
+</div>
