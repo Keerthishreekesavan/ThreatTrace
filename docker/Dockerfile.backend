@@ -1,0 +1,20 @@
+# syntax=docker/dockerfile:1
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Core dependencies only. The optional sentence-transformers extra (which
+# pulls in torch, ~2GB) is deliberately NOT installed here to keep the image
+# small - the schema mapper falls back to its TF-IDF matcher automatically.
+# To build the embedding-backed image instead, add:
+#   RUN pip install --no-cache-dir -r requirements-ml.txt
+COPY backend/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend/ ./
+COPY data/ /data/
+
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens.
+
+   Light and dark are each *selected* sets of steps validated against their own
+   surface with the ΔE/CVD validator - dark is not an automatic inversion.
+
+   Two separate colour systems live here on purpose:
+
+   - `--series-*` / `--seq-*` / status  → DATA encodings. These are the
+     validated palette and must not be chosen for looks.
+   - `--brand*`, `--glow*`, gradients   → UI CHROME (nav, buttons, focus,
+     decorative wash). Never used to encode a value, so they're free to be
+     expressive. The violet brand step clears 3:1 on both surfaces. */
+
+:root {
+  color-scheme: light;
+
+  --plane: #f4f4f8;
+  --surface: #ffffff;
+  --raised: #fbfbfd;
+  --sunken: #eeeef4;
+
+  --text-primary: #0b0b0f;
+  --text-secondary: #4b4b57;
+  --text-muted: #85858f;
+  --gridline: #e6e6ee;
+  --baseline: #c9c9d4;
+  --border-ring: rgba(11, 11, 20, 0.08);
+
+  --brand: #5b46d9;
+  --brand-soft: rgba(91, 70, 217, 0.1);
+  --brand-ring: rgba(91, 70, 217, 0.28);
+  --glow: rgba(91, 70, 217, 0.16);
+
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+
+  --seq-100: #cde2fb;
+  --seq-250: #86b6ef;
+  --seq-400: #3987e5;
+  --seq-450: #2a78d6;
+  --seq-550: #1c5cab;
+  --seq-650: #104281;
+
+  --shadow-card: 0 1px 2px rgba(11, 11, 20, 0.04), 0 8px 24px rgba(11, 11, 20, 0.06);
+  --shadow-pop: 0 8px 32px rgba(11, 11, 20, 0.12);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Violet-tinted near-black, the SOC-console look. The categorical, status,
+     and sequential palettes were re-validated against #14141c. */
+  --plane: #0a0a11;
+  --surface: #14141c;
+  --raised: #1b1b26;
+  --sunken: #101017;
+
+  --text-primary: #ffffff;
+  --text-secondary: #b9b9c8;
+  --text-muted: #8a8a99;
+  --gridline: #24242f;
+  --baseline: #33333f;
+  --border-ring: rgba(255, 255, 255, 0.08);
+
+  --brand: #8b7bf0;
+  --brand-soft: rgba(139, 123, 240, 0.14);
+  --brand-ring: rgba(139, 123, 240, 0.38);
+  --glow: rgba(139, 123, 240, 0.22);
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+
+  --seq-100: #104281;
+  --seq-250: #184f95;
+  --seq-400: #256abf;
+  --seq-450: #2a78d6;
+  --seq-550: #3987e5;
+  --seq-650: #86b6ef;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 28px rgba(0, 0, 0, 0.34);
+  --shadow-pop: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular figures only where columns must align vertically. Large standalone
+   numbers keep proportional figures so they don't read as loose. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A card that sits on the plane. */
+.panel {
+  background: var(--surface);
+  border-radius: 16px;
+  box-shadow: 0 0 0 1px var(--border-ring), var(--shadow-card);
+}
+
+/* Decorative brand wash for hero surfaces - chrome, never a data encoding. */
+.brand-wash {
+  background:
+    radial-gradient(120% 140% at 0% 0%, var(--glow), transparent 58%),
+    var(--surface);
+}
+
+.focusable:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* Recharts strips its own focus outlines; keep scroll containers reachable. */
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

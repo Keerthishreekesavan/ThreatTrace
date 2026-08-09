@@ -1,0 +1,6 @@
+# Optional, heavier ML dependency for real sentence-embedding based semantic
+# column matching. If installation fails or is skipped, schema_mapper.py
+# automatically falls back to a TF-IDF + cosine similarity matcher built on
+# scikit-learn alone (already in requirements.txt), so the rest of the system
+# is unaffected either way.
+sentence-transformers==3.3.1

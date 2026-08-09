@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Local database
+*.db
+*.sqlite3
+
+# Retained copies of uploaded logs (kept so a dataset can be re-analyzed after
+# an analyst corrects its column mapping). Runtime data, not source.
+data/uploads/
+
+# Node
+node_modules/
+dist/
+
+# Generated copy of docs/ (see frontend/scripts/sync-landing.mjs) - docs/ is
+# the source of truth; this copy exists only so the app can serve it.
+frontend/public/landing/
+
+# Verification output
+screenshots/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local

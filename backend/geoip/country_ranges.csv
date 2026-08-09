@@ -1,0 +1,31 @@
+cidr,country,country_code,city,lat,lon
+3.0.0.0/8,United States,US,Ashburn,39.0438,-77.4874
+45.0.0.0/8,United States,US,San Jose,37.3382,-121.8863
+64.0.0.0/8,United States,US,Chicago,41.8781,-87.6298
+104.0.0.0/8,United States,US,Seattle,47.6062,-122.3321
+23.0.0.0/8,Canada,CA,Toronto,43.6511,-79.3470
+142.0.0.0/8,Canada,CA,Montreal,45.5019,-73.5674
+80.0.0.0/8,United Kingdom,GB,London,51.5074,-0.1278
+81.0.0.0/8,Germany,DE,Frankfurt,50.1109,8.6821
+90.0.0.0/8,France,FR,Paris,48.8566,2.3522
+95.0.0.0/8,Netherlands,NL,Amsterdam,52.3676,4.9041
+178.0.0.0/8,Russia,RU,Moscow,55.7558,37.6173
+91.0.0.0/8,Ukraine,UA,Kyiv,50.4501,30.5234
+36.0.0.0/8,China,CN,Beijing,39.9042,116.4074
+114.0.0.0/8,China,CN,Shanghai,31.2304,121.4737
+1.0.0.0/8,China,CN,Shenzhen,22.5431,114.0579
+121.0.0.0/8,South Korea,KR,Seoul,37.5665,126.9780
+126.0.0.0/8,Japan,JP,Tokyo,35.6762,139.6503
+133.0.0.0/8,Japan,JP,Osaka,34.6937,135.5023
+103.0.0.0/8,India,IN,Mumbai,19.0760,72.8777
+117.0.0.0/8,India,IN,Bengaluru,12.9716,77.5946
+202.0.0.0/8,Australia,AU,Sydney,-33.8688,151.2093
+203.0.0.0/8,Australia,AU,Melbourne,-37.8136,144.9631
+196.0.0.0/8,South Africa,ZA,Johannesburg,-26.2041,28.0473
+41.0.0.0/8,Nigeria,NG,Lagos,6.5244,3.3792
+177.0.0.0/8,Brazil,BR,Sao Paulo,-23.5505,-46.6333
+181.0.0.0/8,Argentina,AR,Buenos Aires,-34.6037,-58.3816
+190.0.0.0/8,Mexico,MX,Mexico City,19.4326,-99.1332
+217.0.0.0/8,Poland,PL,Warsaw,52.2297,21.0122
+109.0.0.0/8,Italy,IT,Rome,41.9028,12.4964
+88.0.0.0/8,Spain,ES,Madrid,40.4168,-3.7038

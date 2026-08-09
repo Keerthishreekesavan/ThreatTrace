@@ -1,0 +1,993 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ThreatTrace - Adaptive Cybersecurity Threat Detection &amp; Analytics</title>
+<meta name="description" content="Upload any CSV/JSON security log. ThreatTrace semantically infers what each column means, normalizes it, detects threats, scores risk 0-100, and explains every finding with its evidence.">
+
+<style>
+/* ── Design tokens ──────────────────────────────────────────────────────────
+   Same validated palette as the app. Light and dark are each independently
+   stepped against their own surface (checked for CVD separation, chroma, and
+   contrast) - dark is not an auto-inversion of light.                       */
+:root {
+  color-scheme: dark;
+  --surface:      #14141c;
+  --plane:        #0a0a11;
+  --raised:       #1b1b26;
+  --sunken:       #101017;
+  --ink:          #ffffff;
+  --ink-2:        #b9b9c8;
+  --ink-3:        #8a8a99;
+  --line:         #24242f;
+  --rule:         #33333f;
+  --ring:         rgba(255,255,255,.08);
+
+  /* Chrome accent. Never a data encoding, so it's free to be expressive;
+     #8b7bf0 clears 3:1 on this surface. */
+  --brand:        #8b7bf0;
+  --brand-soft:   rgba(139,123,240,.14);
+  --brand-ring:   rgba(139,123,240,.38);
+  --glow:         rgba(139,123,240,.22);
+  --shadow-card:  0 1px 2px rgba(0,0,0,.4), 0 8px 28px rgba(0,0,0,.34);
+  --shadow-pop:   0 10px 40px rgba(0,0,0,.5);
+
+  --s1: #3987e5;  --s2: #d95926;  --s3: #199e70;  --s4: #c98500;  --s5: #d55181;
+  --seq-lo: #184f95; --seq: #2a78d6; --seq-hi: #86b6ef;
+
+  --good: #0ca30c; --warn: #fab219; --serious: #ec835a; --critical: #d03b3b;
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --maxw: 1120px;
+}
+html[data-theme="light"] {
+  color-scheme: light;
+  --surface: #ffffff;
+  --plane:   #f4f4f8;
+  --raised:  #fbfbfd;
+  --sunken:  #eeeef4;
+  --ink:     #0b0b0f;
+  --ink-2:   #4b4b57;
+  --ink-3:   #85858f;
+  --line:    #e6e6ee;
+  --rule:    #c9c9d4;
+  --ring:    rgba(11,11,20,.08);
+
+  --brand:        #5b46d9;
+  --brand-soft:   rgba(91,70,217,.10);
+  --brand-ring:   rgba(91,70,217,.28);
+  --glow:         rgba(91,70,217,.16);
+  --shadow-card:  0 1px 2px rgba(11,11,20,.04), 0 8px 24px rgba(11,11,20,.06);
+  --shadow-pop:   0 8px 32px rgba(11,11,20,.12);
+
+  --s1: #2a78d6;  --s2: #eb6834;  --s3: #1baf7a;  --s4: #eda100;  --s5: #e87ba4;
+  --seq-lo: #cde2fb; --seq: #2a78d6; --seq-hi: #184f95;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--plane); color: var(--ink);
+  font-family: var(--sans); line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+code, .mono { font-family: var(--mono); }
+
+.wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+section { padding: 76px 0; }
+section + section { border-top: 1px solid var(--line); }
+/* Clear the 58px sticky nav when an in-page anchor is followed, so the
+   heading isn't hidden underneath it. */
+section[id] { scroll-margin-top: 72px; }
+
+.eyebrow {
+  font-size: 11px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase;
+  color: var(--ink-3); margin: 0 0 14px;
+}
+h1, h2, h3 { line-height: 1.2; letter-spacing: -.02em; margin: 0; }
+h2 { font-size: clamp(26px, 3.4vw, 36px); font-weight: 650; }
+h3 { font-size: 17px; font-weight: 650; }
+.lede { color: var(--ink-2); font-size: 17px; max-width: 65ch; margin: 14px 0 0; }
+.muted { color: var(--ink-3); }
+
+/* ── Nav ─────────────────────────────────────────────────────────────────── */
+header.nav {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.nav-in { display: flex; align-items: center; gap: 28px; height: 58px; }
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: -.01em; }
+.brand .dot {
+  width: 26px; height: 26px; border-radius: 8px; flex: none;
+  display: grid; place-items: center;
+  font-size: 12px; font-weight: 800; color: #fff; letter-spacing: -.02em;
+  background: linear-gradient(140deg, var(--brand), var(--s1));
+  box-shadow: 0 4px 14px var(--glow);
+}
+.nav-links { display: flex; gap: 22px; margin-left: auto; }
+.nav-links a {
+  font-size: 13.5px; color: var(--ink-2); text-decoration: none; transition: color .15s;
+}
+.nav-links a:hover { color: var(--ink); }
+.icon-btn {
+  font: inherit; font-size: 12px; cursor: pointer;
+  background: transparent; color: var(--ink-2);
+  border: 1px solid var(--ring); border-radius: 7px; padding: 5px 10px;
+}
+.icon-btn:hover { color: var(--ink); border-color: var(--rule); }
+@media (max-width: 780px) { .nav-links { display: none; } .icon-btn { margin-left: auto; } }
+
+/* ── Hero ────────────────────────────────────────────────────────────────── */
+.hero { padding: 92px 0 68px; position: relative; overflow: hidden; }
+.hero::before {
+  content: ""; position: absolute; inset: -40% 30% auto -10%; height: 520px;
+  background:
+    radial-gradient(ellipse at 24% 38%, var(--glow), transparent 60%),
+    radial-gradient(ellipse at 68% 10%, color-mix(in srgb, var(--s3) 10%, transparent), transparent 55%);
+  pointer-events: none;
+}
+.hero-in { position: relative; }
+.badge {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12px; color: var(--ink-2);
+  border: 1px solid var(--ring); border-radius: 999px; padding: 5px 13px;
+  background: var(--surface);
+}
+.badge b { color: var(--ink); font-weight: 600; }
+h1 { font-size: clamp(36px, 6.2vw, 62px); font-weight: 680; margin: 22px 0 0; max-width: 20ch; }
+h1 .grad {
+  /* Two stops only - a third (yellow) stop turns the midpoint olive on a short
+     word, and drops below usable contrast on the light surface. */
+  background: linear-gradient(100deg, var(--brand), var(--s1) 55%, var(--s3));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.hero p.lede { font-size: 18.5px; }
+.cta { display: flex; flex-wrap: wrap; gap: 11px; margin-top: 32px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 14px; font-weight: 560; text-decoration: none;
+  padding: 11px 19px; border-radius: 9px; transition: transform .12s, opacity .15s;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary {
+  background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 68%, var(--s1)));
+  color: #fff; box-shadow: 0 6px 20px var(--glow);
+}
+.btn-primary:hover { opacity: .9; }
+.btn-ghost { border: 1px solid var(--rule); color: var(--ink); }
+.btn-ghost:hover { background: var(--surface); }
+/* No app reachable: the button stays visible for layout but isn't clickable,
+   and the status line beside it explains why. */
+.btn.is-disabled { background: var(--line); color: var(--ink-3);
+  cursor: not-allowed; pointer-events: none; }
+
+.app-status { display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--ink-3); margin: 14px 0 0; }
+.app-status .led { width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: var(--ink-3); }
+.app-status[data-live="yes"] .led { background: var(--good);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 24%, transparent); }
+.app-status[data-live="no"]  .led { background: var(--ink-3); }
+.app-status code { color: var(--ink-2); }
+
+/* ── Stat strip ──────────────────────────────────────────────────────────── */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px;
+  background: var(--line); border: 1px solid var(--line); border-radius: 16px;
+  overflow: hidden; margin-top: 54px;
+  box-shadow: var(--shadow-card); }
+.stat { background: var(--surface); padding: 20px 22px; }
+.stat .v { font-size: 27px; font-weight: 660; letter-spacing: -.02em; }
+.stat .k { font-size: 11.5px; color: var(--ink-3); margin-top: 3px;
+  text-transform: uppercase; letter-spacing: .07em; }
+
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface); border-radius: 16px; padding: 24px;
+  box-shadow: 0 0 0 1px var(--ring), var(--shadow-card);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.card:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px var(--brand-ring), var(--shadow-pop); }
+.grid { display: grid; gap: 16px; }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.g3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.span-all { grid-column: 1 / -1; }
+/* Detectors: a fixed 2x2 of rule engines, with the ML card spanning beneath.
+   auto-fit would give 3 columns here and leave a lone card in row 2. */
+.g-det { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 720px) { .g-det { grid-template-columns: 1fr; } }
+
+/* ── Schema mapping diagram (the hero concept) ───────────────────────────── */
+.map-wrap { margin-top: 30px; }
+.map-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+@media (max-width: 720px) { .map-cols { grid-template-columns: 1fr; } }
+.src {
+  background: var(--surface); border: 1px solid var(--ring);
+  border-radius: 14px; padding: 15px 16px;
+}
+/* Applies to both the source cards and the canonical card - scoping these to
+   .src alone left the canonical box with run-together header text and
+   default bulleted list styling. */
+.src .src-h, .canon .src-h {
+  font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: 11px;
+  display: flex; justify-content: space-between; gap: 12px;
+}
+.src ul, .canon ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.src li, .canon li { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); }
+.funnel { display: flex; align-items: center; justify-content: center; gap: 14px;
+  margin: 20px 0; color: var(--ink-3); font-size: 12px; }
+.funnel .bar { height: 1px; flex: 1; max-width: 190px;
+  background: linear-gradient(90deg, transparent, var(--rule), transparent); }
+.canon {
+  border: 1px solid color-mix(in srgb, var(--s1) 42%, transparent);
+  background: color-mix(in srgb, var(--s1) 8%, var(--surface));
+  border-radius: 14px; padding: 17px 18px;
+}
+.canon .src-h { color: var(--s1); }
+.canon ul { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.canon li { color: var(--ink); }
+
+/* ── Steps ───────────────────────────────────────────────────────────────── */
+.steps { counter-reset: s; display: grid; gap: 2px; margin-top: 30px;
+  border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--line); }
+.step { background: var(--surface); padding: 20px 24px; display: grid;
+  grid-template-columns: 34px 1fr; gap: 18px; align-items: start; }
+.step::before {
+  counter-increment: s; content: counter(s);
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+  width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--s1) 16%, transparent);
+  color: var(--s1); border: 1px solid color-mix(in srgb, var(--s1) 34%, transparent);
+}
+.step p { margin: 5px 0 0; color: var(--ink-2); font-size: 14.5px; }
+
+/* ── Detector cards ──────────────────────────────────────────────────────── */
+.det { border-left: 3px solid var(--c); }
+.det .dh { display: flex; align-items: center; gap: 9px; }
+.det .swatch { width: 9px; height: 9px; border-radius: 2px; background: var(--c); flex: none; }
+.det p { margin: 9px 0 0; font-size: 14px; color: var(--ink-2); }
+.det .needs {
+  margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line);
+  font-size: 12px; color: var(--ink-3);
+}
+.det .needs b { color: var(--ink-2); font-weight: 560; }
+
+/* ── Formula ─────────────────────────────────────────────────────────────── */
+.formula {
+  font-family: var(--mono); font-size: 13.5px; line-height: 2.1;
+  background: var(--plane); border: 1px solid var(--line);
+  border-radius: 14px; padding: 20px 22px; overflow-x: auto;
+  /* preserve the hand-aligned line breaks (a div would collapse them) */
+  white-space: pre;
+}
+@media (max-width: 720px) { .formula { font-size: 11.5px; } }
+.w { color: var(--s1); font-weight: 600; }
+.bands { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px; margin-top: 16px; }
+.band { border-radius: 9px; padding: 13px 15px; background: var(--surface);
+  border: 1px solid var(--ring); border-left: 3px solid var(--c); }
+.band .r { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+.band .n { font-weight: 620; font-size: 15px; color: var(--c); margin-top: 2px; }
+
+/* ── Alert sample ────────────────────────────────────────────────────────── */
+.alert { border: 1px solid var(--ring); border-radius: 13px; overflow: hidden;
+  background: var(--surface); margin-top: 26px; }
+.alert-h { display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  padding: 16px 22px; border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--critical) 7%, var(--surface)); }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650;
+  color: var(--critical); border: 1px solid var(--critical);
+  border-radius: 6px; padding: 3px 9px;
+}
+.alert-b { padding: 20px 22px; }
+.alert-b h4 { margin: 0 0 9px; font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-3); font-weight: 700; }
+.alert-b ul, .alert-b ol { margin: 0 0 20px; padding-left: 19px; color: var(--ink-2); font-size: 14.5px; }
+.alert-b li { margin-bottom: 5px; }
+.alert-b li:last-child { margin-bottom: 0; }
+.meter { display: grid; gap: 9px; }
+.meter-row { display: grid; grid-template-columns: 168px 1fr 44px; gap: 12px; align-items: center;
+  font-size: 12.5px; color: var(--ink-2); }
+/* display:block matters - these are spans, and width/height don't apply to
+   inline boxes, so the fill would never render. */
+.track { display: block; height: 9px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.fill { display: block; height: 100%; border-radius: 3px; background: var(--seq); }
+.meter-row .pct { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+@media (max-width: 620px) { .meter-row { grid-template-columns: 120px 1fr 40px; } }
+
+/* ── Requirements ────────────────────────────────────────────────────────── */
+.req { display: grid; gap: 14px; margin-top: 28px; }
+.req-item { display: grid; grid-template-columns: 42px 1fr; gap: 16px;
+  background: var(--surface); border: 1px solid var(--ring); border-radius: 16px; padding: 20px 22px; }
+.req-n { font-family: var(--mono); font-size: 19px; font-weight: 680; color: var(--s1); }
+.req-item h3 { font-size: 15.5px; }
+.req-item p { margin: 6px 0 0; font-size: 14px; color: var(--ink-2); }
+.req-item .fails {
+  margin-top: 11px; font-size: 12.5px; color: var(--ink-3);
+  border-left: 2px solid var(--critical); padding-left: 11px;
+}
+.req-item .fails b { color: var(--serious); font-weight: 560; }
+
+.testline { display: inline-flex; align-items: center; gap: 8px; margin-top: 18px;
+  font-size: 12.5px; color: var(--ink-3); }
+.testline .tick { color: var(--good); font-weight: 700; }
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+.tbl-scroll { overflow-x: auto; margin-top: 24px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 480px; }
+th, td { text-align: left; padding: 11px 14px; }
+thead th { font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 700; border-bottom: 1px solid var(--rule); }
+tbody tr { border-bottom: 1px solid var(--line); }
+tbody tr:last-child { border-bottom: none; }
+td.f { color: var(--ink-2); }
+
+/* ── Fit lists ───────────────────────────────────────────────────────────── */
+.fit { --c: var(--good); }
+.fit-h { display: flex; align-items: center; gap: 9px; font-weight: 620; font-size: 14.5px; }
+.fit-h .m { color: var(--c); font-size: 15px; }
+.fit ul { list-style: none; margin: 13px 0 0; padding: 0; display: grid; gap: 6px; }
+.fit li { font-size: 13.5px; color: var(--ink-2); padding-left: 15px; position: relative; }
+.fit li::before { content: "·"; position: absolute; left: 3px; color: var(--ink-3); }
+
+/* ── Callout ─────────────────────────────────────────────────────────────── */
+.callout {
+  border: 1px solid color-mix(in srgb, var(--warn) 38%, transparent);
+  background: color-mix(in srgb, var(--warn) 7%, var(--surface));
+  border-radius: 16px; padding: 20px 22px; margin-top: 26px;
+}
+.callout .ch { display: flex; align-items: center; gap: 9px; font-weight: 640; font-size: 14.5px; }
+.callout .ch span { color: var(--warn); }
+.callout p { margin: 9px 0 0; font-size: 14.5px; color: var(--ink-2); }
+.callout p:last-child { margin-bottom: 0; }
+
+/* ── Shots ───────────────────────────────────────────────────────────────── */
+.tabs { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 26px; }
+.tab { font: inherit; font-size: 13px; cursor: pointer; padding: 7px 14px; border-radius: 8px;
+  background: transparent; color: var(--ink-2); border: 1px solid var(--ring); }
+.tab[aria-selected="true"] { background: var(--brand-soft); color: var(--ink);
+  border-color: var(--brand-ring); font-weight: 600; }
+.tab:hover { color: var(--ink); }
+.shot { margin-top: 18px; border: 1px solid var(--ring); border-radius: 16px;
+  overflow: hidden; background: var(--surface); }
+.shot img { display: block; width: 100%; height: auto; }
+.shot figcaption { font-size: 12.5px; color: var(--ink-3); padding: 12px 18px;
+  border-top: 1px solid var(--line); }
+
+.cm { color: var(--ink-3); }  /* inline comments in .formula */
+
+footer { border-top: 1px solid var(--line); padding: 40px 0 56px; }
+.foot { display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+  font-size: 13px; color: var(--ink-3); }
+.foot a { color: var(--ink-2); text-decoration: none; }
+.foot a:hover { color: var(--ink); }
+
+.js-reveal .reveal { opacity: 0; transform: translateY(10px); }
+.js-reveal .reveal.in { opacity: 1; transform: none;
+  transition: opacity .4s ease, transform .4s cubic-bezier(.22,.8,.3,1); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { transition: none !important; animation: none !important; }
+  .js-reveal .reveal { opacity: 1 !important; transform: none !important; }
+  .card:hover { transform: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <div class="brand"><span class="dot" aria-hidden="true">T</span> ThreatTrace</div>
+    <nav class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#detect">Detection</a>
+      <a href="#risk">Risk &amp; explanations</a>
+      <a href="#data">Will it work on my data?</a>
+      <a href="#limits">Limitations</a>
+    </nav>
+    <button class="icon-btn" id="theme" aria-label="Toggle colour theme">Light</button>
+  </div>
+</header>
+
+<!-- ── HERO ──────────────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="wrap hero-in">
+    <span class="badge"><b>Adaptive schema inference</b> · no column mapping config</span>
+    <h1>Upload <span class="grad">any</span> security log. It figures out the rest.</h1>
+    <p class="lede">
+      Every log source names the same field differently. ThreatTrace resolves them
+      <em>semantically</em> - profiling each column's name, type, and actual values - then
+      normalizes, detects threats, scores risk 0-100, and explains every finding with the
+      evidence behind it.
+    </p>
+    <div class="cta">
+      <!-- href is resolved at runtime; starts absent so it can never be a dead
+           link before the app-detection probe has finished. -->
+      <a class="btn btn-primary is-disabled" id="open-app" role="button" aria-disabled="true">Open the dashboard →</a>
+      <a class="btn btn-ghost" href="#data">Will it work on my data?</a>
+    </div>
+    <p class="app-status" id="app-status" hidden></p>
+
+    <div class="stats">
+      <div class="stat"><div class="v">13</div><div class="k">Ontology concepts</div></div>
+      <div class="stat"><div class="v">5</div><div class="k">Detection engines</div></div>
+      <div class="stat"><div class="v">48</div><div class="k">Tests passing</div></div>
+      <div class="stat"><div class="v">0</div><div class="k">LLM API calls</div></div>
+      <div class="stat"><div class="v">100%</div><div class="k">Offline capable</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── THE PROBLEM ───────────────────────────────────────────────────────── -->
+<section id="problem">
+  <div class="wrap">
+    <p class="eyebrow">The problem</p>
+    <h2>Three logs. Same meaning. Zero shared column names.</h2>
+    <p class="lede">
+      Traditional pipelines need a hand-written mapping per data source. ThreatTrace embeds a
+      description of each column - built from its name, inferred type, and observed value
+      shape - and matches it against a canonical threat ontology by cosine similarity.
+    </p>
+
+    <div class="map-wrap">
+      <div class="map-cols">
+        <div class="src">
+          <div class="src-h"><span>Dataset A</span><span>auth</span></div>
+          <ul>
+            <li>source_ip</li><li>destination_ip</li><li>failed_attempts</li><li>timestamp</li>
+          </ul>
+        </div>
+        <div class="src">
+          <div class="src-h"><span>Dataset B</span><span>web</span></div>
+          <ul>
+            <li>src_addr</li><li>dst_host</li><li>login_fail</li><li>event_time</li>
+          </ul>
+        </div>
+        <div class="src">
+          <div class="src-h"><span>Dataset C</span><span>network</span></div>
+          <ul>
+            <li>client_ip</li><li>server_ip</li><li>authentication_errors</li><li>created_at</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="funnel">
+        <span class="bar"></span>
+        <span>semantic inference ↓</span>
+        <span class="bar"></span>
+      </div>
+
+      <div class="canon">
+        <div class="src-h"><span>Canonical schema</span><span>one shape for every detector</span></div>
+        <ul>
+          <li>source_ip</li><li>destination_ip</li><li>failed_attempts</li><li>timestamp</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="lede" style="margin-top:26px">
+      Columns the ontology doesn't recognize are <strong>never discarded</strong> - they're kept
+      verbatim per row in an <code>extra_fields</code> blob and stay visible during investigation.
+    </p>
+  </div>
+</section>
+
+<!-- ── HOW IT WORKS ──────────────────────────────────────────────────────── -->
+<section id="how">
+  <div class="wrap">
+    <p class="eyebrow">Pipeline</p>
+    <h2>How a column gets understood</h2>
+
+    <div class="steps">
+      <div class="step">
+        <div>
+          <h3>Profile the column</h3>
+          <p>Infer the type from real values (IPv4, datetime, integer, categorical, string) and
+             summarize their shape into a sentence - <code class="mono">"Column named 'usr_fail_cnt'.
+             Inferred type: integer. Values 0-47, mean 2.10."</code></p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Embed and match</h3>
+          <p>Score that descriptor against all 13 ontology concept descriptions by cosine
+             similarity, with bonuses for name-hint overlap and type compatibility - and a
+             <strong>penalty for type mismatch</strong>, which is what stops a string
+             <code>cost_centre_code</code> from being read as the integer <code>status_code</code>.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Calibrate confidence</h3>
+          <p>A per-column softmax converts raw scores into a 0-1 confidence that means the same
+             thing regardless of which embedding backend is running.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Assign without collisions</h3>
+          <p>Greedy highest-confidence-first bipartite matching, so two columns can never claim
+             the same concept. A lone IP column is resolved to <code>source_ip</code>, since that's
+             what every detector groups by.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Normalize, preserving everything</h3>
+          <p>Emit the canonical schema with missing fields left empty rather than invented, and
+             everything unmapped retained verbatim.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:20px">
+      <div class="card">
+        <h3>Two interchangeable backends</h3>
+        <p class="lede" style="font-size:14.5px">
+          <code>sentence-transformers</code> (MiniLM) when installed, or a pure scikit-learn
+          TF-IDF matcher when it isn't - no torch required. Both are tested to map every sample
+          column correctly, so the fallback is a real option, not a degraded mode.
+        </p>
+      </div>
+      <div class="card">
+        <h3>Deterministic by design</h3>
+        <p class="lede" style="font-size:14.5px">
+          No LLM call anywhere in the pipeline. Explanations are templates filled with measured
+          evidence, so findings are reproducible, free, offline, and auditable - which matters when
+          a verdict has to hold up in an incident review.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── DETECTION ─────────────────────────────────────────────────────────── -->
+<section id="detect">
+  <div class="wrap">
+    <p class="eyebrow">Detection</p>
+    <h2>Four explainable rules, plus unsupervised ML</h2>
+    <p class="lede">
+      All grouped per source IP over <em>densest</em> sliding windows - a two-pointer scan finds the
+      busiest window of a given size, so a burst is never split across two fixed buckets.
+    </p>
+
+    <div class="grid g-det" style="margin-top:30px">
+      <div class="card det" style="--c: var(--s1)">
+        <div class="dh"><span class="swatch"></span><h3>Brute force</h3></div>
+        <p>Many failed authentications against the <em>same</em> account from one IP in a short window.</p>
+        <div class="needs"><b>Needs:</b> source IP · timestamp · username · failure signal</div>
+      </div>
+      <div class="card det" style="--c: var(--s2)">
+        <div class="dh"><span class="swatch"></span><h3>Credential spraying</h3></div>
+        <p>One IP, many <em>distinct</em> accounts, few attempts each - the low attempts-per-user ratio is what separates it from brute force.</p>
+        <div class="needs"><b>Needs:</b> source IP · timestamp · username · failure signal</div>
+      </div>
+      <div class="card det" style="--c: var(--s3)">
+        <div class="dh"><span class="swatch"></span><h3>Port scanning</h3></div>
+        <p>One IP touching many distinct destination ports; near-sequential runs are treated as a stronger signal.</p>
+        <div class="needs"><b>Needs:</b> source IP · timestamp · port</div>
+      </div>
+      <div class="card det" style="--c: var(--s4)">
+        <div class="dh"><span class="swatch"></span><h3>Endpoint probing</h3></div>
+        <p>Many distinct paths with a high 4xx/5xx ratio, or hits on sensitive routes - <code>/admin</code>, <code>/.env</code>, <code>/.git/config</code>, traversal.</p>
+        <div class="needs"><b>Needs:</b> source IP · timestamp · request path (status code helps)</div>
+      </div>
+      <!-- Spans the row: it's the ML engine, distinct from the four rules, and
+           full width avoids the ragged gap a tall card leaves beside a short one. -->
+      <div class="card det span-all" style="--c: var(--s5)">
+        <div class="dh"><span class="swatch"></span><h3>Behavioural anomaly · Isolation Forest</h3></div>
+        <p>Unsupervised scoring over per-IP features: request rate, failure ratio, distinct
+           ports/destinations/paths/users, mean payload size, off-hours ratio. It both supplies the
+           anomaly term of <em>every</em> risk score and independently flags IPs that match
+           <strong>no rule at all</strong> - the unknown-threat case.</p>
+        <div class="needs"><b>Needs:</b> source IP · timestamp - uses whatever else exists</div>
+      </div>
+    </div>
+
+    <div class="callout" style="border-color: color-mix(in srgb, var(--good) 34%, transparent); background: color-mix(in srgb, var(--good) 6%, var(--surface))">
+      <div class="ch"><span style="color:var(--good)">◆</span> Detectors degrade honestly</div>
+      <p>If a log has no username column, credential spraying genuinely isn't observable in it - so
+         that detector stands down instead of guessing. A 4-column dataset fires two of the five, and
+         says so.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── RISK ──────────────────────────────────────────────────────────────── -->
+<section id="risk">
+  <div class="wrap">
+    <p class="eyebrow">Scoring &amp; explanation</p>
+    <h2>A score an analyst can defend</h2>
+    <p class="lede">Deterministic and weighted - never a black box, always reproducible.</p>
+
+    <div class="formula" style="margin-top:26px">
+risk = 100 × ( <span class="w">0.40</span> × threat_severity      <span class="cm">// strongest rule hit</span>
+             + <span class="w">0.30</span> × behaviour_anomaly    <span class="cm">// Isolation Forest score</span>
+             + <span class="w">0.15</span> × frequency            <span class="cm">// log-scaled event volume</span>
+             + <span class="w">0.15</span> × confidence )          <span class="cm">// evidence × schema-mapping confidence</span>
+    </div>
+
+    <div class="bands">
+      <div class="band" style="--c: var(--good)"><div class="r">0 - 39</div><div class="n">Low</div></div>
+      <div class="band" style="--c: var(--warn)"><div class="r">40 - 59</div><div class="n">Medium</div></div>
+      <div class="band" style="--c: var(--serious)"><div class="r">60 - 79</div><div class="n">High</div></div>
+      <div class="band" style="--c: var(--critical)"><div class="r">80 - 100</div><div class="n">Critical</div></div>
+    </div>
+
+    <h3 style="margin-top:44px">Real output, from the sample data</h3>
+    <div class="alert">
+      <div class="alert-h">
+        <span class="chip">◉ Critical 95.6</span>
+        <strong style="font-size:15px">Possible credential spraying attack</strong>
+        <span class="muted mono" style="font-size:12.5px">36.82.21.229 · China · 67 events</span>
+      </div>
+      <div class="alert-b">
+        <h4>Evidence</h4>
+        <ul>
+          <li>Contacted <strong>45 distinct user accounts</strong> with 67 failed attempts
+              (1.49 attempts/user on average) within 10 minutes</li>
+          <li>Activity differs from the dataset's normal baseline, notably in: distinct usernames,
+              off-hours ratio, distinct destinations</li>
+        </ul>
+        <h4>Recommended actions</h4>
+        <ol>
+          <li>Block the source IP temporarily</li>
+          <li>Review all targeted accounts for signs of compromise</li>
+          <li>Enforce multi-factor authentication on affected accounts</li>
+        </ol>
+        <h4>Risk breakdown · confidence 87.5%</h4>
+        <div class="meter">
+          <div class="meter-row"><span>Threat severity (40%)</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
+          <div class="meter-row"><span>Behaviour anomaly (30%)</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="pct">100%</span></div>
+          <div class="meter-row"><span>Frequency (15%)</span><span class="track"><span class="fill" style="width:83%"></span></span><span class="pct">83%</span></div>
+          <div class="meter-row"><span>Confidence (15%)</span><span class="track"><span class="fill" style="width:87%"></span></span><span class="pct">87%</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SCREENSHOTS ───────────────────────────────────────────────────────── -->
+<section id="dashboard">
+  <div class="wrap">
+    <p class="eyebrow">The dashboard</p>
+    <h2>Six views, built for triage</h2>
+    <p class="lede">
+      Colorblind-safe palette verified with a ΔE/CVD validator. Severity always carries an icon and
+      a text label, so color never conveys meaning alone - and light and dark are independently
+      designed, not auto-inverted.
+    </p>
+
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true"  data-shot="schema-mapping">Schema mapping</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="overview">Overview</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="timeline">Timeline</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="investigation">Investigation</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="investigation-detail">Evidence</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="analytics">Analytics</button>
+    </div>
+
+    <figure class="shot" id="shot">
+      <img src="assets/schema-mapping.png" alt="ThreatTrace schema mapping view" loading="lazy">
+      <figcaption id="cap">Every column, what it was interpreted as, and how confident the match was - the audit surface for the whole analysis.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ── WILL IT WORK ON MY DATA ───────────────────────────────────────────── -->
+<section id="data">
+  <div class="wrap">
+    <p class="eyebrow">Compatibility</p>
+    <h2>Will it work on my data?</h2>
+    <p class="lede">
+      Column <em>names</em> genuinely don't matter. Column <em>structure</em> does. Four hard
+      requirements - all four, or the analysis honestly returns nothing.
+    </p>
+
+    <div class="req">
+      <div class="req-item">
+        <div class="req-n">1</div>
+        <div>
+          <h3>One row per event</h3>
+          <p>Detectors count rows within a time window. Pre-aggregated data can't be windowed.</p>
+          <div class="fails">Verified: hourly rows reading <b>"37 failures"</b> → 0 detections, even though the count column mapped correctly.</div>
+        </div>
+      </div>
+      <div class="req-item">
+        <div class="req-n">2</div>
+        <div>
+          <h3>A source IP column</h3>
+          <p>Every detector and the anomaly model group by source IP - it's the entity findings attach to. Any name works: <code>src_addr</code>, <code>client_ip</code>, <code>IpAddress</code>, <code>id.orig_h</code>, <code>rhost</code>.</p>
+          <div class="fails">Verified: an app audit log with user + timestamp but no IP → <b>0 detections</b>.</div>
+        </div>
+      </div>
+      <div class="req-item">
+        <div class="req-n">3</div>
+        <div>
+          <h3>A timestamp column</h3>
+          <p>Every rule is time-windowed. ISO 8601, epoch floats, and <code>MM/DD/YYYY hh:mm:ss AM</code> all parse.</p>
+          <div class="fails">Verified: 60 failed root logins from one IP with no timestamp → <b>0 detections</b>.</div>
+        </div>
+      </div>
+      <div class="req-item">
+        <div class="req-n">4</div>
+        <div>
+          <h3>Already parsed into columns</h3>
+          <p>CSV, JSON arrays, records nested under any wrapper key (Elasticsearch <code>hits.hits</code>, CloudTrail <code>Records</code>), and newline-delimited JSON.</p>
+          <div class="fails">Verified: raw syslog text in a single <code>message</code> column → <b>0 columns mapped</b>. There is no free-text parser.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout" style="border-color: color-mix(in srgb, var(--s1) 38%, transparent); background: color-mix(in srgb, var(--s1) 7%, var(--surface))">
+      <div class="ch"><span style="color:var(--s1)">→</span> The one-line test</div>
+      <p>Does each row say <strong>who</strong> (IP), <strong>when</strong> (timestamp), and
+         <strong>what happened</strong> - in columns? If yes, it'll work, whatever those columns are
+         called. If no, it loads, maps what it can, and reports zero findings rather than inventing them.</p>
+    </div>
+
+    <h3 style="margin-top:48px">Log sources, by fit</h3>
+    <div class="grid g3" style="margin-top:18px">
+      <div class="card fit" style="--c: var(--good)">
+        <div class="fit-h"><span class="m">●</span> Works well</div>
+        <ul>
+          <li>SSH / auth logs</li>
+          <li>Windows Security events (4624 / 4625)</li>
+          <li>Web access logs - nginx, Apache, ALB, CloudFront</li>
+          <li>WAF logs</li>
+          <li>Firewall, netflow, Zeek <code>conn.log</code></li>
+          <li>VPN and RADIUS</li>
+          <li>Cloud sign-ins - Okta, Azure AD, CloudTrail</li>
+        </ul>
+      </div>
+      <div class="card fit" style="--c: var(--warn)">
+        <div class="fit-h"><span class="m">◆</span> Partially</div>
+        <ul>
+          <li>IDS / IPS alerts</li>
+          <li>Proxy logs</li>
+          <li>Load-balancer logs without paths</li>
+        </ul>
+        <p class="muted" style="font-size:13px; margin:14px 0 0">
+          IP and time are present, so anomaly detection and usually port-scanning work, but
+          rule coverage is patchy.
+        </p>
+      </div>
+      <div class="card fit" style="--c: var(--critical)">
+        <div class="fit-h"><span class="m">▲</span> Won't work</div>
+        <ul>
+          <li>Raw unstructured syslog</li>
+          <li>EDR / process telemetry (no source IP)</li>
+          <li>File-integrity monitoring</li>
+          <li>DNS logs without client IP</li>
+          <li>Packet captures (pcap)</li>
+          <li>Application error logs</li>
+          <li>Anything pre-aggregated</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3 style="margin-top:48px">Field requirements per detector</h3>
+    <div class="tbl-scroll">
+      <table>
+        <thead>
+          <tr><th>Detector</th><th>Source IP</th><th>Timestamp</th><th>Also needs</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Brute force</td><td>required</td><td>required</td><td class="f">username · failure signal</td></tr>
+          <tr><td>Credential spraying</td><td>required</td><td>required</td><td class="f">username · failure signal</td></tr>
+          <tr><td>Port scanning</td><td>required</td><td>required</td><td class="f">port</td></tr>
+          <tr><td>Endpoint probing</td><td>required</td><td>required</td><td class="f">request path · status code (helps)</td></tr>
+          <tr><td>Behavioural anomaly</td><td>required</td><td>required</td><td class="f">nothing - uses whatever exists</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ── LIMITATIONS ───────────────────────────────────────────────────────── -->
+<section id="limits">
+  <div class="wrap">
+    <p class="eyebrow">Honest limitations</p>
+    <h2>Where it's weak</h2>
+    <p class="lede">
+      Tested against formats the system was <em>not</em> designed around - Zeek, a Windows Security
+      export, an Elasticsearch/ECS response, NDJSON, a non-security spreadsheet, and tiny/empty
+      files. Ingestion held up. Detection is more nuanced.
+    </p>
+
+    <div class="callout">
+      <div class="ch"><span>▲</span> A wrong mapping produces a wrong finding - not a missing one</div>
+      <p>Confident mappings (above ~0.7) are reliable. <strong>Low-confidence ones are frequently
+         wrong</strong>, and semantic similarity has no way to know that "LogonType" is not a failure
+         count. This is inherent to the approach - so the fix is to make it
+         <em>visible and correctable</em> rather than to pretend it doesn't happen.</p>
+      <p>Two real cases from the test suite: Zeek's <code>id.resp_p</code> landed on
+         <code>status_code</code> instead of <code>port</code>, so that file's port scan went
+         <strong>undetected</strong>; and a Windows export's client-side <code>IpPort</code> landed on
+         <code>port</code>, <strong>manufacturing a spurious port-scan alert</strong>.</p>
+    </div>
+
+    <div class="grid g3" style="margin-top:22px">
+      <div class="card">
+        <h3>Check the confidence column</h3>
+        <p class="lede" style="font-size:14px">It exists precisely so a bad mapping is visible
+           before you trust a finding. Anything under ~0.6 deserves a look.</p>
+      </div>
+      <div class="card">
+        <h3>Analyst override fixes it in two clicks</h3>
+        <p class="lede" style="font-size:14px">The <strong>Schema</strong> page flags every
+           low-confidence match, shows each column's type and sample values, and lets you
+           reassign it. <em>Apply &amp; re-run</em> rebuilds detections, scores, and explanations
+           from the corrected mapping.</p>
+      </div>
+      <div class="card">
+        <h3>Leads, not verdicts</h3>
+        <p class="lede" style="font-size:14px">On an unfamiliar format, treat findings as leads. On a
+           known format whose mapping you've checked once, they're trustworthy.</p>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <h3>Also worth knowing</h3>
+        <p class="lede" style="font-size:14px">
+          Detector thresholds are tuned to the synthetic sample data (e.g. 8 failed auths / 10 min)
+          and should be recalibrated against your own baseline. The bundled GeoIP table is a small
+          illustrative one for offline demos - swap in a real database for production. Uploads are
+          analyzed synchronously, so very large files would want a job queue.
+        </p>
+      </div>
+      <div class="card">
+        <h3>Robustness, separately, is solid</h3>
+        <p class="lede" style="font-size:14px">
+          No tested format crashes. A non-security spreadsheet correctly yields zero findings rather
+          than invented ones. Malformed rows - bad IPs, unparseable timestamps, non-numeric counts -
+          degrade to empty values instead of raising. Unmappable columns are always preserved.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot">
+    <span class="brand" style="font-size:14px"><span class="dot" aria-hidden="true">T</span> ThreatTrace</span>
+    <span class="muted">Adaptive cybersecurity threat detection &amp; analytics</span>
+    <span style="margin-left:auto"><a href="#problem">Back to top ↑</a></span>
+  </div>
+</footer>
+
+<script>
+// Theme toggle - both modes are explicitly defined token sets, not an inversion.
+(function () {
+  var root = document.documentElement, btn = document.getElementById('theme');
+  // Dark is the intended default (it matches the app and the SOC context), so
+  // only an explicit, remembered choice overrides it - not the OS setting.
+  var saved = null;
+  try { saved = localStorage.getItem('tt-theme'); } catch (e) {}
+  if (saved) root.setAttribute('data-theme', saved);
+  function label() { btn.textContent = root.getAttribute('data-theme') === 'dark' ? 'Light' : 'Dark'; }
+  label();
+  btn.addEventListener('click', function () {
+    var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('tt-theme', next); } catch (e) {}
+    label();
+  });
+})();
+
+/* Reveal-on-scroll. The `js-reveal` class is added by script, so with JS off (or
+   if this throws) every section stays fully visible - the animation is additive,
+   never load-bearing. Honours prefers-reduced-motion via the CSS above. */
+(function () {
+  if (!('IntersectionObserver' in window)) return;
+  var targets = document.querySelectorAll('section > .wrap');
+  if (!targets.length) return;
+  document.documentElement.classList.add('js-reveal');
+  targets.forEach(function (el) { el.classList.add('reveal'); });
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, { rootMargin: '0px 0px 14% 0px', threshold: 0.01 });
+  targets.forEach(function (el) { io.observe(el); });
+  // The hero is above the fold on load; show it immediately.
+  var first = document.querySelector('.hero .wrap');
+  if (first) first.classList.add('in');
+})();
+
+/* ── Wire the landing page to the running app ───────────────────────────────
+   This page is served three different ways, and the dashboard lives somewhere
+   different in each:
+
+     1. by the app itself, at /landing/  → dashboard is one level up
+     2. by GitHub Pages or from file://  → the app isn't on this origin at all,
+                                           so probe the usual local ports
+     3. nowhere running                  → don't offer a dead link; point at
+                                           the quick-start instructions
+
+   The probe uses mode:'no-cors', which resolves opaquely when the port is
+   reachable and rejects when it isn't - enough for liveness, and it avoids
+   needing a CORS grant for this origin.                                     */
+(function () {
+  var btn = document.getElementById('open-app');
+  var status = document.getElementById('app-status');
+  var LOCAL_APPS = ['http://localhost:3000/', 'http://localhost:5173/'];
+
+  function show(state, html) {
+    status.hidden = false;
+    status.dataset.live = state;
+    status.innerHTML = '<span class="led"></span><span>' + html + '</span>';
+  }
+
+  function point(url, label) {
+    btn.href = url;
+    btn.classList.remove('is-disabled');
+    btn.removeAttribute('aria-disabled');
+    show('yes', label);
+  }
+
+  // Case 1: the app is serving this page, so it's definitely up.
+  var m = location.pathname.match(/^(.*)\/landing\/?(?:index\.html)?$/);
+  if (m && location.protocol.indexOf('http') === 0) {
+    point((m[1] || '') + '/', 'Dashboard is running on this server.');
+    return;
+  }
+
+  // Case 2/3: probe the conventional local ports.
+  function probe(i) {
+    if (i >= LOCAL_APPS.length) {
+      // Leave the button disabled and explain why - see README for setup.
+      show('no',
+        'Dashboard isn\'t running locally - start it with <code>npm run dev</code>, then reload.');
+      return;
+    }
+    var url = LOCAL_APPS[i];
+    var done = false;
+    var timer = setTimeout(function () { if (!done) { done = true; probe(i + 1); } }, 1200);
+    fetch(url, { mode: 'no-cors', cache: 'no-store' })
+      .then(function () {
+        if (done) return; done = true; clearTimeout(timer);
+        point(url, 'Dashboard detected at <code>' + url + '</code>');
+      })
+      .catch(function () {
+        if (done) return; done = true; clearTimeout(timer);
+        probe(i + 1);
+      });
+  }
+  probe(0);
+})();
+
+// Screenshot tabs
+(function () {
+  var caps = {
+    'schema-mapping':       "Every column, its inferred type, sample values, and match confidence. Anything low-confidence is flagged, and reassigning it re-runs the whole analysis.",
+    'overview':             "A radial meter for peak risk, tinted KPI tiles, severity distribution in the reserved status palette, and the highest-risk IPs ordered for triage.",
+    'timeline':             "Event volume and detections-by-type share one time axis as two charts - never a dual-axis chart - at selectable bucket sizes.",
+    'investigation':        "Flagged IPs as cards, tinted by severity and filterable. Each names the threat, its origin, and its event count; click one to open the evidence.",
+    'investigation-detail': "Per IP: the threat, its evidence, recommended actions, the weighted risk breakdown, attack progression, and the raw log lines behind the verdict.",
+    'analytics':            "Top malicious IPs, attack categories, geographic distribution, and IPs the Isolation Forest scored as behaviourally abnormal."
+  };
+  var img = document.querySelector('#shot img'), cap = document.getElementById('cap');
+  document.querySelectorAll('.tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('.tab').forEach(function (t) { t.setAttribute('aria-selected', 'false'); });
+      tab.setAttribute('aria-selected', 'true');
+      var k = tab.dataset.shot;
+      img.src = 'assets/' + k + '.png';
+      img.alt = 'ThreatTrace ' + k.replace('-', ' ') + ' view';
+      cap.textContent = caps[k];
+    });
+  });
+})();
+</script>
+</body>
+</html>
